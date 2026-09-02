@@ -1,0 +1,20 @@
+[project]
+name = "locoagent"
+version = "0.0.0"
+description = "Maybe a coding agent"
+requires-python= ">=3.10"
+
+dependencies = [
+    "openai",
+    "python-dotenv",
+]
+
+[project.scripts]
+locoagent = "locoagent.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tools.setuptools.packages.find]
+where = ["src"]
