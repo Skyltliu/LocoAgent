@@ -4,7 +4,12 @@
 解析参数、挑模型后端、构建工作区快照、恢复或新建 session，
 最后进入 one-shot 或交互式循环。
 """
-from .llm import ask_model
+from .runtime import ask_model
+import argparse
+import os
+
+
+
 def main():
     usr_input = input("locoagent> ")
     response = ask_model(usr_input)
