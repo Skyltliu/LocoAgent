@@ -1,12 +1,11 @@
+import json
+import hashlib
 import os
-from dotenv import load_dotenv
-from openai import OpenAI
+import re
+import uuid
+from datetime import datetime
+from pathlib import Path
 
-load_dotenv()
-client = OpenAI(api_key=os.environ["LLM_OPENAI_API_KEY"], base_url=os.environ["LLM_OPENAI_API_BASE"],)
-
-model = os.environ["LLM_OPENAI_MODEL"]
-
-def ask_model(message:str) -> str:
-    response = client.responses.create(model=model, input=message,)
-    return response.output_text
+class LocoAgent:
+    def __init__():
+        pass
