@@ -6,6 +6,7 @@ requires-python= ">=3.10"
 
 dependencies = [
     "openai",
+    "pytest>=9.1.1",
     "python-dotenv",
 ]
 
@@ -16,5 +17,5 @@ locoagent = "locoagent.cli:main"
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tools.setuptools.packages.find]
+[tool.setuptools.packages.find]
 where = ["src"]
