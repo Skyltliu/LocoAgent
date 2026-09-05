@@ -14,7 +14,7 @@ def _parse_env_line(line):
     if not line or line.startswith("#"):
         return None
     if line.startswith("export "):
-        line = line[len(7):].strip()
+        line = line[7:].strip()
     if "=" not in line:
         raise ValueError("Invalid .env line")
     name, value = line.split("=", 1)

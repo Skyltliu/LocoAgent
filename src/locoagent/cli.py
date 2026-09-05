@@ -12,7 +12,7 @@ import sys
 import textwrap
 import shutil
 
-PROVIDER_CHOICES = ("openai")
+PROVIDER_CHOICES = ("openai",)
 DEFAULT_PROVIDER = "openai"
 DEFAULT_OPENAI_MODEL = "gpt-5.4"
 
