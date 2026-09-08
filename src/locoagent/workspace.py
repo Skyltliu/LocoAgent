@@ -20,7 +20,10 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 def clip(text, limit=MAX_TOOL_OUTPUT):
-    pass
+    text = str(text)
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n...[truncated {len(text) - limit} chars]"
 
 class WorkspaceContext:
     def __init__(self, cwd, repo_root, branch, default_branch, status, recent_commits, project_docs):

@@ -11,10 +11,12 @@ import os
 import sys
 import textwrap
 import shutil
-
+from pathlib import Path
+from .providers.clients import OpenAICompatibleModelClient
 PROVIDER_CHOICES = ("openai",)
 DEFAULT_PROVIDER = "openai"
 DEFAULT_OPENAI_MODEL = "gpt-5.4"
+DEFAULT_OPENAI_BASE_URL = "https://www.right.codes/codex/v1"
 
 def _effective_providers(args):
     provider = getattr(args, "provider", None) or get_env("LLM_OPENAI_PROVIDER", DEFAULT_PROVIDER)
@@ -50,13 +52,34 @@ def build_arg_parse():
     parser.add_argument("--temperature", type=float, default=0.9, help="Model output randomness")
     return parser
 
+def _build_model_client(args):
+    provider = _effective_providers(args)
+    
+    model = _effective_model(args, provider)
+    base_url = getattr(args, "base_url", None) or get_env("LLM_OPENAI_API_BASE", DEFAULT_OPENAI_BASE_URL)
+    api_key = get_env("LLM_OPENAI_API_KEY")
+    return OpenAICompatibleModelClient(model=model, base_url=base_url, api_key=api_key, temperature=args.temperature, timeout=getattr(args, "openai_timeout", 300))
+
 def build_agent(args):
     pass
 
 def main(argv=None):
-    usr_input = input("locoagent> ")
+    load_env(Path.cwd())
+    api_key = get_env("LLM_OPENAI_API_KEY")
+
+    print("API key loaded:", bool(api_key))
+    print("API key length:", len(api_key))
     parser = build_arg_parse()
     args = parser.parse_args(argv)
-    agent = build_agent(args)
+    client = _build_model_client(args)
+    if not args.prompt:
+        prompt = input("locoagent> ").strip()
+    else:
+        prompt = " ".join(args.prompt).strip()
+    if not prompt:
+        return 0
+    response = client.complete(prompt)
+    print(response)
+    return 0
 
 
