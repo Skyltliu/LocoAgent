@@ -20,7 +20,10 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 def clip(text, limit=MAX_TOOL_OUTPUT):
-    pass
+    text = str(text)
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n...[truncated {len(text) - limit} chars]"
 
 class WorkspaceContext:
     def __init__(self, cwd, repo_root, branch, default_branch, status, recent_commits, project_docs):
@@ -74,6 +77,30 @@ class WorkspaceContext:
             project_docs=docs
         )
     def text(self):
-        pass
+        commits = "\n".join(f"- {line}" for line in self.recent_commits) or "- none"
+        docs = "\n".join(f"- {path}\n{snippet}" for path, snippet in self.project_docs.items()) or "- none"
+        return textwrap.dedent(
+            f"""\
+            Workspace:
+            - cwd: {self.cwd}
+            - repo_root: {self.repo_root}
+            - branch: {self.branch}
+            - default_branch: {self.default_branch}
+            - status: {self.status}
+            - recent_commits: {commits}
+            - project_docs: {docs}
+            """
+        ).strip()
+
     def fingerprint(self):
-        pass
+        payload = {
+            "cwd": self.cwd,
+            "repo_root": self.repo_root,
+            "branch": self.branch,
+            "default_branch": self.default_branch,
+            "status": self.status,
+            "recent_commits": list(self.recent_commits),
+            "project_docs": dict(self.project_docs),
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+    
