@@ -77,6 +77,30 @@ class WorkspaceContext:
             project_docs=docs
         )
     def text(self):
-        pass
+        commits = "\n".join(f"- {line}" for line in self.recent_commits) or "- none"
+        docs = "\n".join(f"- {path}\n{snippet}" for path, snippet in self.project_docs.items()) or "- none"
+        return textwrap.dedent(
+            f"""\
+            Workspace:
+            - cwd: {self.cwd}
+            - repo_root: {self.repo_root}
+            - branch: {self.branch}
+            - default_branch: {self.default_branch}
+            - status: {self.status}
+            - recent_commits: {commits}
+            - project_docs: {docs}
+            """
+        ).strip()
+
     def fingerprint(self):
-        pass
+        payload = {
+            "cwd": self.cwd,
+            "repo_root": self.repo_root,
+            "branch": self.branch,
+            "default_branch": self.default_branch,
+            "status": self.status,
+            "recent_commits": list(self.recent_commits),
+            "project_docs": dict(self.project_docs),
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+    
