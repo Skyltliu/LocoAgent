@@ -26,6 +26,11 @@ Build it as a walking skeleton, then add each subsystem as an
   providers/clients.py
     · FakeModelClient.__init__(outputs) / .complete(prompt, max_new_tokens, **kwargs) — scripted, deterministic client
 
+  Not yet in scope: nothing to trim here — these primitives are already
+  in their final shape and don't get rewritten by any later phase (only
+  extended: Phase 11 adds sibling classes next to FakeModelClient, it
+  doesn't touch it).
+
   Phase 1 — Single-turn skeleton
 
   Why: proves the request → prompt → model → parsed-answer path end to
@@ -36,7 +41,11 @@ Build it as a walking skeleton, then add each subsystem as an
 
   runtime.py
     · locoagent.__init__(...) minimal — hold client/workspace/session
-    · locoagent._ensure_session_shape() — normalize session dict on load
+    · locoagent._ensure_session_shape() — normalize session dict on load. At this phase
+      it's just `self.session.setdefault("history", [])`; the other four
+      setdefault/type-check blocks (memory / checkpoints / runtime_identity /
+      resume_state) belong to Phase 4 and Phase 7 respectively — see those
+      phases' scope notes.
     · locoagent.record(item) — append an item to session history
     · locoagent.parse(raw) / locoagent.retry_notice(problem=None) — raw text → (kind, payload); malformed-output nudge
     · locoagent.extract(text, tag) / locoagent.extract_raw(text, tag) / locoagent.parse_attrs(text) / locoagent.parse_xml_tool(raw) — tag/attr extraction helpers backing parse()
@@ -47,6 +56,26 @@ Build it as a walking skeleton, then add each subsystem as an
     · locoagent.prompt(user_message) — naive prompt = prefix + request
     · locoagent.ask(user_message) — ask loop: build → complete → parse → return on final
   ✅ Runnable: answers questions about the repo snapshot.
+
+  Not yet in scope (comes later):
+    · locoagent.parse(raw) — only needs the `<final>` and empty/plain-text branches
+      returning ("final", ...) / ("retry", ...). Skip the `<tool>`/`<tool ...>`
+      branches entirely — there's nothing to call one yet.
+    · locoagent.parse_xml_tool / locoagent.parse_attrs / locoagent.extract_raw — don't write
+      these yet. They only exist to parse the XML-attribute tool-call format
+      used by write_file/patch_file, which don't exist until Phase 2 — write
+      them alongside those tools instead.
+    · locoagent.prompt(user_message) — the final version is `prompt, _ =
+      self._build_prompt_and_metadata(user_message)`; at this phase there is no
+      `_build_prompt_and_metadata` yet, so implement it as the literal naive
+      concatenation (`self.prefix + "\n\n" + user_message`). The swap to the
+      metadata-returning builder happens in Phase 5.
+    · locoagent.ask(user_message) — the final version is a 2-line delegate to
+      `AgentLoop(self).run(user_message)`. At this phase write it as a small
+      self-contained loop with no `kind == "tool"` branch (Phase 2), no
+      task_state/trace (Phase 3), no AgentLoop extraction (Phase 3), no
+      checkpoint/resume branching (Phase 7), no redaction (Phase 8), and no
+      durable-memory promotion (Phase 10).
 
   Phase 2 — Tools (the actual point)
 
@@ -59,6 +88,13 @@ Build it as a walking skeleton, then add each subsystem as an
   onward exists to make this loop durable, efficient, and safe at scale —
   none of it matters without this phase working first.
 
+  runtime.py
+    · locoagent.history_text() — naive turn-by-turn transcript → text (tool calls + results,
+      user/assistant turns). This is new at this phase, not Phase 1: a single-turn
+      Phase-1 prompt has no prior history to show, but a multi-step tool loop does —
+      without this, the model can't see the outcome of a tool it just called and the
+      loop can't make progress. From this phase on, locoagent.prompt()'s naive formula
+      becomes `prefix + history_text() + request`.
   tool_context.py
     · ToolContext.path(raw_path) — confine a relative path to the workspace root
     · ToolContext.shell_env() — filtered env for shell tool calls
@@ -81,6 +117,25 @@ Build it as a walking skeleton, then add each subsystem as an
     · locoagent.repeated_tool_call(name, args) — loop guard for identical repeated calls
     · locoagent.ask(...) extended: loop handles kind == "tool" → execute → record → continue; enforces max_steps and an attempt cap (locoagent.record_attempt-style bookkeeping)
   ✅ Runnable: real coding agent for short tasks.
+
+  Not yet in scope (comes later):
+    · locoagent.parse(raw) now fills in the `<tool>`(JSON) and `<tool ...>`(XML)
+      branches, using parse_xml_tool/parse_attrs/extract_raw — this is where
+      those three helpers actually get written.
+    · locoagent.ask(...) — this is still the Phase-1 loop living directly on locoagent,
+      just extended with tool handling; it has NOT yet been moved into
+      agent_loop.py (Phase 3), and still has no task_state/trace (Phase 3),
+      no checkpoint/resume branching (Phase 7), no redaction (Phase 8), no
+      durable-memory promotion (Phase 10).
+    · ToolContext.shell_env_provider (wired from locoagent.shell_env) — security.py
+      doesn't exist yet (Phase 8), so this phase's `shell_env()` should be a
+      minimal stand-in (e.g. pass through `dict(os.environ)` or a small
+      hardcoded allowlist inline), not the real `securitylib.shell_env(...)`.
+    · The "delegate" tool — leave it out entirely. Don't add a "delegate"
+      entry to BASE_TOOL_SPECS/legal_tool_names/TOOL_EXAMPLES, don't add the
+      `depth < max_depth` registration branch in build_tool_registry, and
+      don't wire ToolContext.spawn_delegate. All of that — plus
+      tools.py::tool_delegate and locoagent.spawn_delegate — is Phase 9.
 
   Phase 3 — Durability & observability
 
@@ -114,6 +169,26 @@ Build it as a walking skeleton, then add each subsystem as an
     · AgentLoop._finish_success(task_state, user_message, final, run_started_at) — success path → task_state/report
     · AgentLoop.run(user_message) — the extracted loop, plus a finalization pass on budget exhaustion
 
+  Not yet in scope (comes later):
+    · AgentLoop.run(...) — move the Phase-2 loop body in wholesale (build →
+      complete → parse → tool/retry/final handling) plus TaskState/RunStore
+      calls and the budget-exhaustion finalization prompt at the bottom.
+      Leave out: the `resume_status`/`budget_reductions` checkpoint-trigger
+      branches and every `agent.create_checkpoint(...)` call (Phase 7);
+      `agent.promote_durable_memory(...)` calls (Phase 10).
+    · AgentLoop._request_model / ._persist_model_failure / ._finish_success —
+      same trim: no `create_checkpoint(...)` calls yet (Phase 7), and
+      `_persist_model_failure`'s `agent.redact_text(str(exc))` should just be
+      `str(exc)` for now (Phase 8 adds redaction).
+    · locoagent.emit_trace — scope is just `self.run_store.append_trace(task_state,
+      payload)` plus the event/timestamp fields; the
+      `payload = self.redact_artifact(payload or {})` line is a Phase 8 addition.
+    · locoagent.build_report — scope is run_id/task_id/status/stop_reason/
+      final_answer/tool_steps/attempts/task_state/prompt_metadata only.
+      checkpoint_id/resume_status fields are Phase 7, durable_promotions/
+      rejections/superseded are Phase 10, redacted_env is Phase 8 — add them
+      to the dict as those phases land, not now.
+
   Phase 4 — Working memory
 
   Why: as tasks grow past what fits in raw history, the agent needs a
@@ -138,6 +213,22 @@ Build it as a walking skeleton, then add each subsystem as an
     · locoagent.remember(bucket, item, limit) — bounded list append used by note-taking
     · locoagent.memory_text() — LayeredMemory.render_memory_text() wired into the prompt
     · locoagent.update_memory_after_tool(name, args, result) / locoagent.note_tool(name, args, result) — post-tool memory updates
+
+  Not yet in scope (comes later):
+    · locoagent._ensure_session_shape() gains `self.session.setdefault("memory",
+      memorylib.default_memory_state())`; __init__'s literal session dict
+      gains the matching `"memory": memorylib.default_memory_state()` key.
+    · locoagent.feature_flags / locoagent.feature_enabled(name) — this is where the
+      flags dict and the gate mechanism first need to exist, since
+      update_memory_after_tool checks `self.feature_enabled("memory")`. Only
+      the "memory" key matters yet; Phase 5 adds "context_reduction" /
+      "relevant_memory" to the same dict, Phase 6 adds "prompt_cache" — no new
+      mechanism, just more keys over time.
+    · features/memory.py::invalidate_stale_file_summaries / retrieval_candidates
+      / retrieval_view — implement these now, but they stay uncalled: nothing
+      invokes locoagent.invalidate_stale_memory() until Phase 7's resume path, and
+      nothing renders relevant-memory retrieval until Phase 5's
+      ContextManager._render_relevant_memory.
 
   Phase 5 — Context budgeting
 
@@ -164,7 +255,23 @@ Build it as a walking skeleton, then add each subsystem as an
     · locoagent._build_prompt_and_metadata(user_message) — swaps the naive builder for ContextManager.build
     · locoagent.prompt_metadata(user_message, prompt) — exposes the metadata alongside the prompt
     · locoagent.feature_enabled(name) — reads context_reduction / relevant_memory / etc. feature flags
-    · locoagent.history_text() — raw fallback used when context_reduction is off
+    · locoagent.history_text() — already exists since Phase 2; it gets demoted here, not introduced.
+      ContextManager grows its own independent raw-history formatter
+      (_raw_history_text / _render_history_section) that becomes the actual
+      history-in-prompt source (budgeted, and compressible when context_reduction
+      is on). locoagent.history_text() keeps existing afterward only for
+      metadata["history_chars"] char-counting and (from Phase 9) seeding a
+      delegate child's memory notes — it stops being what the model actually sees.
+
+  Not yet in scope (comes later):
+    · locoagent._build_prompt_and_metadata — at this phase it should call
+      `self.build_prefix()` directly (no caching yet — that's Phase 6's
+      `refresh_prefix()`), skip `self.evaluate_resume_state()` and every
+      resume_status/stale_* metadata field (Phase 7), and skip
+      `metadata.update(self.detected_secret_env_summary())` (Phase 8). Its
+      metadata dict at this phase is just: prefix_chars, workspace_chars,
+      memory_chars, history_chars, request_chars, tool_count, workspace_docs,
+      recent_commits — plus whatever context_manager.build(...) itself returns.
 
   Phase 6 — Prefix caching
 
@@ -186,6 +293,17 @@ Build it as a walking skeleton, then add each subsystem as an
     · OpenAICompatibleModelClient.complete(..., prompt_cache_key=None, prompt_cache_retention=None) and
       AnthropicCompatibleModelClient.complete(..., prompt_cache_key=None, prompt_cache_retention=None) —
       accept prompt_cache_key = hash of the (now-stable) prefix, passed through to the provider
+
+  Not yet in scope (comes later):
+    · locoagent._build_prompt_and_metadata — now calls `self.refresh_prefix()`
+      instead of `self.build_prefix()`, and adds prefix_hash/prompt_cache_key/
+      workspace_fingerprint/tool_signature/workspace_changed/prefix_changed to
+      metadata. Still no resume_status fields (Phase 7) or
+      detected_secret_env_summary() (Phase 8).
+    · AgentLoop._request_model — now reads `prompt_metadata.get("prompt_cache_key")`
+      and passes prompt_cache_key/prompt_cache_retention into
+      `model_client.complete(...)`; Phase 3's version of this method called
+      `complete(prompt, max_new_tokens)` with no cache kwargs.
 
   Phase 7 — Checkpoint / resume
 
@@ -211,6 +329,24 @@ Build it as a walking skeleton, then add each subsystem as an
   agent_loop.py / runtime.py
     · AgentLoop.run(...) branches on resume_status and on budget_reductions from context_manager metadata
 
+  Not yet in scope (comes later):
+    · locoagent._ensure_session_shape() gains the `checkpoints` (current_id/items),
+      `runtime_identity`, and `resume_state` setdefault/type-check blocks —
+      this is where checkpoint.py's session keys first get backfilled.
+    · AgentLoop.run(...) / ._request_model / ._persist_model_failure /
+      ._finish_success — this is where the `agent.create_checkpoint(...)`
+      calls that Phase 3 explicitly deferred finally get added (model-failure
+      path, tool-executed step, freshness/workspace-mismatch triggers,
+      run-finished, and the step-limit/retry-limit stop path), plus the
+      resume_status/budget_reductions branches at the top of the loop.
+    · locoagent._build_prompt_and_metadata — now calls `self.evaluate_resume_state()`
+      and adds resume_status/stale_summary_invalidations/stale_paths/
+      runtime_identity_mismatch_fields to metadata.
+    · locoagent.invalidate_stale_memory() — defined back in Phase 4 but only gets
+      called for the first time now, from the resume-evaluation path.
+    · Still not in scope: redact_text/redact_artifact calls (Phase 8),
+      promote_durable_memory calls (Phase 10).
+
   Phase 8 — Security / redaction
 
   Why: once run_shell (Phase 2) and traces/reports (Phase 3) exist, real
@@ -232,6 +368,19 @@ Build it as a walking skeleton, then add each subsystem as an
       .secret_env_summary/.detected_secret_env_summary/.redact_text/.redact_artifact/.shell_env — wrappers wired
       into emit_trace, build_report, and tool_run_shell
 
+  Not yet in scope (comes later): none — this phase is where every deferred
+  redaction hook from earlier phases finally gets filled in:
+    · locoagent.emit_trace gains `payload = self.redact_artifact(payload or {})`
+      (deferred since Phase 3).
+    · locoagent.build_report gains `"redacted_env": self.detected_secret_env_summary()`
+      (deferred since Phase 3).
+    · locoagent._build_prompt_and_metadata gains
+      `metadata.update(self.detected_secret_env_summary())` (deferred since Phase 5).
+    · AgentLoop._persist_model_failure switches from `str(exc)` to
+      `agent.redact_text(str(exc))` (deferred since Phase 3).
+    · ToolContext.shell_env_provider switches from the Phase 2 stand-in to
+      the real `securitylib.shell_env(allowlist=self.shell_env_allowlist, root=self.root)`.
+
   Phase 9 — Sub-agent delegation
 
   Why: some sub-tasks (e.g. read-only investigation) are cheaper and
@@ -247,6 +396,13 @@ Build it as a walking skeleton, then add each subsystem as an
   tools.py
     · tool_delegate(context, args) — runner invoked by spawn_delegate; legal_tool_names() includes "delegate"
       only when allowed
+
+  Not yet in scope (comes later): none — this phase is where the "delegate"
+  tool that Phase 2 explicitly left out finally gets added: BASE_TOOL_SPECS /
+  legal_tool_names / TOOL_EXAMPLES / validate_tool all gain their "delegate"
+  entries, build_tool_registry adds the `depth < max_depth` registration
+  branch, and ToolContext.spawn_delegate gets wired to the new
+  locoagent.spawn_delegate.
 
   Phase 10 — Durable memory
 
@@ -268,6 +424,11 @@ Build it as a walking skeleton, then add each subsystem as an
     · locoagent.extract_durable_promotions(user_message, final_answer) — candidate extraction at task end
     · locoagent.promote_durable_memory(user_message, final_answer) — extract → filter → DurableMemoryStore.promote
     · locoagent.record_process_note_for_tool(name, metadata) — episodic note for a tool call, feeding future promotion
+
+  Not yet in scope (comes later): none new to build here, but this is where
+  the `agent.promote_durable_memory(user_message, final)` calls that Phase 3
+  left out finally get added — in AgentLoop._finish_success and in the
+  step-limit/retry-limit stop path at the bottom of AgentLoop.run.
 
   Phase 11 — Real providers + CLI
 
@@ -299,6 +460,12 @@ Build it as a walking skeleton, then add each subsystem as an
   runtime.py
     · locoagent.from_session(cls, model_client, workspace, session_store, session_id, **kwargs) — resume-from-session constructor
     · locoagent.reset() — REPL "reset" command support
+
+  Not yet in scope: nothing — unlike every prior phase, this one doesn't
+  complete anything left half-built earlier. It's purely additive: new
+  provider classes sitting next to FakeModelClient, and a new CLI entrypoint
+  that constructs a locoagent exactly as Phases 0–10 already defined it, just
+  with a real model_client instead of the fake one.
 
   Principle: each phase leaves you with a runnable agent and is testable
   in isolation; phases 4–10 are independent subsystems gated behind
