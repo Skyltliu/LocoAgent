@@ -1,7 +1,8 @@
-"""工作区快照工具。
+"""Workspace snapshot utilities.
 
-这个模块负责在 agent 按需读文件之前，先给它一份便宜的“仓库第一印象”。
-这份快照刻意保持小而稳定：主要包含 Git 事实和少量白名单项目文档。
+This module is responsible for giving the agent a cheap "first impression" of the repository before it reads files on demand.
+
+The snapshot is intentionally kept small and stable: it mainly contains Git facts and a small set of allowlisted project documents.
 """
 
 import subprocess
@@ -24,6 +25,15 @@ def clip(text, limit=MAX_TOOL_OUTPUT):
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n...[truncated {len(text) - limit} chars]"
+def middle(text, limit):
+    text = str(text).replace("\n", " ")
+    if len(text) <= limit:
+        return text
+    if limit <= 3:
+        return text[:limit]
+    left = (limit-3)//2
+    right = limit - 3 - left
+    return text[:left] + "..." + text[-right:]
 
 class WorkspaceContext:
     def __init__(self, cwd, repo_root, branch, default_branch, status, recent_commits, project_docs):
@@ -54,7 +64,7 @@ class WorkspaceContext:
         repo_root = (
             Path(repo_root_override).resolve()
             if repo_root_override is not None
-            else Path(git(["rev_parse", "--show-toplevel"], str(cwd))).resolve()
+            else Path(git(["rev-parse", "--show-toplevel"], str(cwd))).resolve()
         )
         docs = {}
         for base in (repo_root, cwd):

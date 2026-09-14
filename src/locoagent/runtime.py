@@ -13,6 +13,7 @@ class LocoAgent:
         self.workspace = workspace
         self.max_new_tokens = max_new_tokens
         self.model_client = model_client
+        
         self.session_store = session_store
         self.session = session or {
             "id": datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6],
@@ -20,11 +21,35 @@ class LocoAgent:
             "workspace_root": workspace.repo_root,
             "history": [],
         }
+        self._ensure_session_shape()
         self.session_path = self.session_store.save(self.session)
         self.prefix_state = self.build_prefix()
         self.prefix = self.prefix_state.text
-        self._ensure_session_shape()
+        
 
+    #phase 2 functions
+    def history_text(self):
+        history = self.session["history"]
+        if not history:
+            return "- empty"
+        lines = []
+        seen_reads = set()
+        recent_start = max(0, len(history)-6)
+        for index, item in enumerate(history):
+            recent = index >= recent_start
+            if item["role"] == "tool" and item["name"] == "read_file" and not recent:
+                path = str(item["args"].get("path", ""))
+                if path in seen_reads:
+                    continue
+                seen_reads.add(path)
+            if item["role"] == "tool":
+                limit = 900 if recent else 180
+                lines.append(f"[tool:{item['name']}] {json.dumps(item['args'], sort_keys=True)}")
+                lines.append(clip(item["content"], limit))
+            else:
+                limit = 900 if recent else 220
+                lines.append(f"[{item['role']}] {clip(item['content'], limit)}")
+        return clip("\n".join(lines), MAX_HISTORY)
 
     #phase 1 functions
     def _ensure_session_shape(self):
