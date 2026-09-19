@@ -5,9 +5,9 @@ Build it as a walking skeleton, then add each subsystem as an
   benchmarks are the tell).
 
   Note: the main agent class is referred to as `LocoAgent` throughout this
-  document. The current codebase names the class `LocoAgent` (pico/runtime.py) —
+  document. The current codebase names the class `LocoAgent` (locoagent/runtime.py) —
   same class, this document just uses the earlier name; module/file paths
-  below (pico/runtime.py etc.) still match the actual code layout.
+  below (locoagent/runtime.py etc.) still match the actual code layout.
 
   Phase 0 — Primitives (no LocoAgent yet)
 
@@ -115,6 +115,9 @@ Build it as a walking skeleton, then add each subsystem as an
     · LocoAgent.validate_tool(name, args) / LocoAgent.tool_example(name) / LocoAgent.tool_context() — validation + context plumbing
     · LocoAgent.approve(name, args) — approval policy hook before risky tools run
     · LocoAgent.repeated_tool_call(name, args) — loop guard for identical repeated calls
+    · LocoAgent.capture_workspace_snapshot() / LocoAgent.diff_workspace_snapshots(before, after) —
+      before/after filesystem snapshot + diff, used by ToolExecutor.execute() around risky tool
+      runs to populate affected_paths/workspace_changed/diff_summary metadata
     · LocoAgent.parse(raw) extended: fills in the `<tool>`(JSON) and `<tool ...>`(XML)
       branches (empty at Phase 1) — this is where parse_xml_tool/parse_attrs/extract_raw
       actually get written, backing the new branches
@@ -285,7 +288,7 @@ Build it as a walking skeleton, then add each subsystem as an
   from Phase 0) — caching an unstable prefix would just thrash.
 
   runtime.py
-    · LocoAgent.tool_signature() — pico/prompt_prefix.py::tool_signature(tools), folded into the fingerprint
+    · LocoAgent.tool_signature() — locoagent/prompt_prefix.py::tool_signature(tools), folded into the fingerprint
     · LocoAgent._apply_prefix_state(prefix_state) — install a (re)built prefix + its fingerprint
     · LocoAgent.refresh_prefix(force=False) — fingerprint gate: rebuild build_prompt_prefix() only when workspace/tool
       fingerprint changed (or force=True)
