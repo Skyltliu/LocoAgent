@@ -6,15 +6,20 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from .session_store import SessionStore
+from . import tools as toolkit
+from .tool_context import ToolContext
+from .tool_executor import ToolExecutor
 from .prompt_prefix import build_prompt_prefix
 from .workspace import IGNORED_PATHS, MAX_HISTORY, WorkspaceContext, clip, now
 class LocoAgent:
-    def __init__(self, model_client, workspace, session_store, session=None, max_new_tokens=512):
+    def __init__(self, model_client, workspace, session_store, session=None, max_new_tokens=512, read_only=False, allowed_tools=None,):
         self.workspace = workspace
         self.max_new_tokens = max_new_tokens
         self.model_client = model_client
         
+        self.read_only = read_only
         self.session_store = session_store
+        self.allowed_tools = self._normalize_allowed_tools(allowed_tools)
         self.session = session or {
             "id": datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6],
             "created_at": now(),
@@ -22,12 +27,22 @@ class LocoAgent:
             "history": [],
         }
         self._ensure_session_shape()
+        self.tools = self._apply_tool_allowlist(self.build_tools())
+        self.tool_executor = ToolExecutor(self)
         self.session_path = self.session_store.save(self.session)
         self.prefix_state = self.build_prefix()
         self.prefix = self.prefix_state.text
         
 
     #phase 2 functions
+    def _normalize_allowed_tools(allowed_tools):
+        if allowed_tools is None:
+            return None
+        normalized = tuple(str(name).strip() for name in allowed_tools)
+        if not normalized or any(not name for name in normalized):
+            raise ValueError("allowed_tools must be a non-empty sequence of tool names")
+        return normalized
+
     def history_text(self):
         history = self.session["history"]
         if not history:
@@ -51,6 +66,43 @@ class LocoAgent:
                 lines.append(f"[{item['role']}] {clip(item['content'], limit)}")
         return clip("\n".join(lines), MAX_HISTORY)
 
+    def _apply_tool_allowlist(self, tools):
+        pass
+
+
+    def build_tools(self):
+        return toolkit.build_tool_registry(self.tool_context())
+
+    def validate_tool(self, name, args):
+        toolkit.validate_tool(self.tool_context(), name, args)
+
+    def tool_context(self):
+        return ToolContext(
+            root=self.root,
+            path_solver=self.path,
+            shell_env_provider=self.shell_env,
+            depth=self.depth,
+            max_depth=self.max_depth,
+
+        )
+
+    def path(self, raw_path):
+        pass
+
+    def shell_env(self):
+        pass
+
+    def approve(self, name, args):
+        pass
+
+    def capture_workspace_snapshot(self):
+        pass
+
+    @staticmethod
+    def diff_workspace_snapshots(before, after):
+        pass
+
+    
     #phase 1 functions
     def _ensure_session_shape(self):
         """
@@ -70,7 +122,8 @@ class LocoAgent:
         literal naive concatenation (`self.prefix + "\n\n" + user_message`)
         """
         return self.prefix + "\n\n" + user_message
-    
+
+    #mods required
     def ask(self, user_message):
         """
         At this phase write it as a small self-contained loop with no `kind == "tool"` branch (Phase 2), no
@@ -106,7 +159,7 @@ class LocoAgent:
             'For multi-line files, prefer <tool name="write_file" path="file.py"><content>...</content></tool>.'
         )
 
-
+    #phase 2 mods required
     @staticmethod
     def parse(raw):
         """
