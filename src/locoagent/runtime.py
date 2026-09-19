@@ -12,11 +12,13 @@ from .tool_executor import ToolExecutor
 from .prompt_prefix import build_prompt_prefix
 from .workspace import IGNORED_PATHS, MAX_HISTORY, WorkspaceContext, clip, now
 class LocoAgent:
-    def __init__(self, model_client, workspace, session_store, session=None, max_new_tokens=512, read_only=False, allowed_tools=None,):
+    def __init__(self, model_client, workspace, session_store, session=None, max_new_tokens=512, depth=0, max_depth=0, read_only=False, allowed_tools=None,):
         self.workspace = workspace
         self.max_new_tokens = max_new_tokens
+        self.depth = depth
+        self.max_depth = max_depth
         self.model_client = model_client
-        
+        self.root = Path(workspace.repo_root)
         self.read_only = read_only
         self.session_store = session_store
         self.allowed_tools = self._normalize_allowed_tools(allowed_tools)
@@ -35,7 +37,7 @@ class LocoAgent:
         
 
     #phase 2 functions
-    def _normalize_allowed_tools(allowed_tools):
+    def _normalize_allowed_tools(self, allowed_tools):
         if allowed_tools is None:
             return None
         normalized = tuple(str(name).strip() for name in allowed_tools)
@@ -79,11 +81,9 @@ class LocoAgent:
     def tool_context(self):
         return ToolContext(
             root=self.root,
-            path_solver=self.path,
+            path_resolver=self.path,
             shell_env_provider=self.shell_env,
             depth=self.depth,
-            max_depth=self.max_depth,
-
         )
 
     def path(self, raw_path):
@@ -102,7 +102,9 @@ class LocoAgent:
     def diff_workspace_snapshots(before, after):
         pass
 
-    
+    def repeated_tool_call(self, name, args):
+        pass
+
     #phase 1 functions
     def _ensure_session_shape(self):
         """

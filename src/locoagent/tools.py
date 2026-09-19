@@ -38,7 +38,7 @@ BASE_TOOL_SPECS = {
 }
 
 def legal_tool_names():
-    return set(BASE_TOOL_SPECS) | {"delegate"}
+    return set(BASE_TOOL_SPECS)
 
 TOOL_EXAMPLES = {
     "list_files": '<tool>{"name":"list_files", "args":{"path":"."}}</tool>',
@@ -47,7 +47,6 @@ TOOL_EXAMPLES = {
     "run_shell": '<tool>{"name":"run_shell","args":{"command":"uv run --with pytest python -m pytest -q","timeout":20}}</tool>',
     "write_file": '<tool name="write_file" path="binary_search.py"><content>def binary_search(nums, target):\n    return -1\n</content></tool>',
     "patch_file": '<tool name="patch_file" path="binary_search.py"><old_text>return -1</old_text><new_text>return mid</new_text></tool>',
-    "delegate": '<tool>{"name":"delegate","args":{"task":"inspect README.md","max_steps":3}}</tool>',
 }
 
 def build_tool_registry(context):

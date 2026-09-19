@@ -68,8 +68,21 @@ class ToolExecutor:
         try:
             agent.validate_tool(name, args)
         except Exception as exc:
-            pass
-
+            example = agent.tool_example(name)
+            message = f"error: invalid arguments for {name}: {exc}"
+            if example:
+                message += f"\nexample: {example}"
+            security_event_type = "path_escape" if "path escapes workspace" in str(exc) else ""
+            return ToolExecutionResult(
+                content=content,
+                metadata=_metadata(
+                    "rejected",
+                    tool_error_code="invalid_arguments",
+                    security_event_type=security_event_type,
+                    risk_level="high" if tool["risky"] else "low",
+                    read_only=not tool["risky"],
+                )
+            )
         if agent.repeated_tool_call(name, args):
             return ToolExecutionResult(
                 content=f"error: repeated identical tool call for {name}; choose a different tool or return a final answer",

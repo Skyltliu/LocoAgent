@@ -9,7 +9,6 @@ class ToolContext:
     path_resolver: Callable[[str], Path]
     shell_env_provider: Callable[[], dict]
     depth: int
-    max_depth: int
 
     def path(self, raw_path):
         return self.path_resolver(str(raw_path))
