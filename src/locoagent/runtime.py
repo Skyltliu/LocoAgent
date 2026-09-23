@@ -34,7 +34,7 @@ class LocoAgent:
         self.session_path = self.session_store.save(self.session)
         self.prefix_state = self.build_prefix()
         self.prefix = self.prefix_state.text
-        
+        self._last_tool_result_metadata = {}
 
     #phase 2 functions
     def _normalize_allowed_tools(self, allowed_tools):
@@ -69,7 +69,18 @@ class LocoAgent:
         return clip("\n".join(lines), MAX_HISTORY)
 
     def _apply_tool_allowlist(self, tools):
-        pass
+        if self.allowed_tools is None:
+            return tools
+        legal_names = toolkit.legal_tool_names()
+        unknown = [name for name in self.allowed_tools if name not in legal_names]
+        if unknown:
+            raise ValueError(f"unknown allowed tool: {', '.join(unknown)}")
+        allowed = set(self.allowed_tools)
+        return {
+            name: tool
+            for name, tool in tools.items()
+            if name in allowed
+        }
 
 
     def build_tools(self):
@@ -103,6 +114,68 @@ class LocoAgent:
         pass
 
     def repeated_tool_call(self, name, args):
+        pass
+
+    def execute_tool(self, name, args):
+        result = self.tool_executor.execute(name, args)
+        self._last_tool_result_metadata = dict(result.metadata)
+        return result
+
+    def run_tool(self, name, args):
+        """
+        Execute a single tool call with the full set of safeguards applied before and after execution.
+        Why this exists:
+        In an agent system, the real danger is not "whether the model wants to call a tool," but
+        "whether the platform enforces boundaries before execution." This function is the main
+        gatekeeper for the tool layer: every tool call must pass through it, and the model must
+        never be allowed to call the underlying tool functions directly.
+
+        Input / output:
+        - Input: tool name `name`, argument dictionary `args`
+        - Output: a string result. Whether the tool succeeds or returns an error, the result is
+        normalized into text so the model can consume that feedback on the next iteration.
+
+        Where it sits in the agent flow:
+        It comes after `ask()` reaches the point where the model decides to call a tool. This is
+        the step in the control loop that actually turns the model's intent into an action in the
+        external world. Because of that, it ties together nearly all of the safety and control
+        mechanisms: whether the tool exists, whether its arguments are valid, whether the call is
+        a duplicate, whether approval is required, whether the output needs to be clipped, and
+        whether memory needs to be updated afterward.
+        """
+        return self.execute_tool(name, args).content
+
+    def tool_example(self, name):
+        return toolkit.tool_example(name)
+    
+    def tool_list_files(self, args):
+        return toolkit.tool_list_files(self.tool_context(), args)
+
+    def tool_read_file(self, args):
+        return toolkit.tool_read_file(self.tool_context(), args)
+
+    def tool_search(self, args):
+        return toolkit.tool_search(self.tool_context(), args)
+
+    def tool_run_shell(self, args):
+        return toolkit.tool_run_shell(self.tool_context(), args)
+
+    def tool_write_file(self, args):
+        return toolkit.tool_write_file(self.tool_context(), args)
+
+    def tool_patch_file(self, args):
+        return toolkit.tool_patch_file(self.tool_context(), args)
+    
+    @staticmethod
+    def parse_xml_tool(raw):
+        pass
+
+    @staticmethod
+    def parse_attrs(text):
+        pass
+
+    @staticmethod
+    def extract_raw(text, tag):
         pass
 
     #phase 1 functions

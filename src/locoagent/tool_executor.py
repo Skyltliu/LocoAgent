@@ -136,4 +136,19 @@ class ToolExecutor:
             )
             return ToolExecutionResult(content=content, metadata=metadata)
         except Exception as exc:
-            pass
+            after_snapshot = agent.capture_workspace_snapshot() if tool["risky"] else before_snapshot
+            affected_paths, diff_summary = agent.diff_workspace_snapshots(before_snapshot, after_snapshot)
+            workspace_changed = bool(affected_paths)
+            security_event_type="path_escape" if "path escapes workspace" in str(exc) else ""
+            metadata=_metadata(
+                "partial_success" if workspace_changed else "error",
+                tool_error_code="tool_partial_success" if workspace_changed else "tool_failed",
+                security_event_type=security_event_type,
+                risk_level="high" if tool["risky"] else "low",
+                read_only=not tool["risky"],
+                affected_paths=affected_paths,
+                workspace_changed=workspace_changed,
+                workspace_fingerprint=agent.workspace.fingerprint(),
+                diff_summary=diff_summary,
+            )
+            return ToolExecutionResult(content=f"error: tool {name} failed: {exc}", metadata=metadata)

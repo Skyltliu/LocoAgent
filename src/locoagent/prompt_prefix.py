@@ -13,10 +13,14 @@ class PromptPrefix:
     workspace_fingerprint: str
     built_at: str
 
-def build_prompt_prefix(workspace, tools=None, built_at=None):
-    """
-    identity + rules + workspace.text()
-    """
+def build_prompt_prefix(workspace, tools, built_at=None):
+    tool_lines = []
+    for name, tool in tools.items():
+        fields = ", ".join(f"{key}: {value}" for key, value in tool["schema"].items())
+        risk = "approval required" if tool["risky"] else "safe"
+        tool_lines.append(f"- {name}({fields}) [{risk}] {tool['description']}")
+    tool_text = "\n".join(tool_lines)
+
     examples = "\n".join(
         [
             "<final>Done.</final>",
