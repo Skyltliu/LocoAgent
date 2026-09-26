@@ -12,13 +12,14 @@ from .tool_executor import ToolExecutor
 from .prompt_prefix import build_prompt_prefix
 from .workspace import IGNORED_PATHS, MAX_HISTORY, WorkspaceContext, clip, now
 class LocoAgent:
-    def __init__(self, model_client, workspace, session_store, session=None, max_new_tokens=512, depth=0, max_depth=0, read_only=False, allowed_tools=None,):
+    def __init__(self, model_client, workspace, session_store, session=None, approval_policy="ask", max_new_tokens=512, depth=0, max_depth=0, read_only=False, allowed_tools=None,):
         self.workspace = workspace
         self.max_new_tokens = max_new_tokens
         self.depth = depth
         self.max_depth = max_depth
         self.model_client = model_client
         self.root = Path(workspace.repo_root)
+        self.approval_policy = approval_policy
         self.read_only = read_only
         self.session_store = session_store
         self.allowed_tools = self._normalize_allowed_tools(allowed_tools)
@@ -98,13 +99,28 @@ class LocoAgent:
         )
 
     def path(self, raw_path):
-        pass
+        path = Path(raw_path)
+        path = path if path.is_absolute() else self.root / path
+        resolved = path.resolve()
+        if os.path.commonpath([str(self.root), str(resolved)]) != str(self.root):
+            raise ValueError(f"path escapes workspace: {raw_path}")
+        return resolved
 
     def shell_env(self):
-        pass
+        return dict(os.environ)
 
     def approve(self, name, args):
-        pass
+        if self.read_only:
+            return False
+        if self.approval_policy == "auto":
+            return True
+        if self.approval_policy == "never":
+            return False
+        try:
+            answer = input(f"approve {name} {json.dumps(args, ensure_ascii=True)}? [y/N] ")
+        except EOFError:
+            return False
+        return answer.strip().lower() in {"y", "yes"}
 
     def capture_workspace_snapshot(self):
         pass
@@ -189,14 +205,14 @@ class LocoAgent:
         self.session.setdefault("history", [])
     
     def build_prefix(self):
-        return build_prompt_prefix(workspace=self.workspace)
+        return build_prompt_prefix(workspace=self.workspace, tools=self.tools)
 
     
     def prompt(self, user_message):
         """
         literal naive concatenation (`self.prefix + "\n\n" + user_message`)
         """
-        return self.prefix + "\n\n" + user_message
+        return self.prefix + "\n\n" + self.history_text() + "\n\n" + user_message
 
     #mods required
     def ask(self, user_message):
@@ -244,11 +260,33 @@ class LocoAgent:
         
         """
         raw = str(raw)
+        if "<tool>" in raw and ("<final>" not in raw or raw.find("<tool>") < raw.find("<final>")):
+            body = LocoAgent.extract(raw, "tool")
+            try:
+                payload = json.loads(body)
+            except Exception:
+                return "retry", LocoAgent.retry_notice("model returned malformed tool JSON")
+            if not isinstance(payload, dict):
+                return "retry", LocoAgent.retry_notice("tool payload must be a JSON object")
+            if not str(payload.get("name", "")).strip():
+                return "retry", LocoAgent.retry_notice("tool payload is missing a tool name")
+            args = payload.get("args", {})
+            if args is None:
+                payload["args"] = {}
+            elif not isinstance(args, dict):
+                return "retry", LocoAgent.retry_notice()
+            return "tool", payload
+        if "<tool" in raw and ("<final>" not in raw or raw.find("<tool") < raw.find("<final>")):
+            payload = LocoAgent.parse_xml_tool(raw)
+            if payload is not None:
+                return "tool", payload
+            return "retry", LocoAgent.retry_notice()
         if "<final>" in raw:
             final = LocoAgent.extract(raw, "final").strip()
             if final:
                 return "final", final
             return "retry", LocoAgent.retry_notice("model returned an empty <final> answer")
+        raw = raw.strip()
         if raw:
             return "final", raw
         return "retry", LocoAgent.retry_notice("model returned an empty response")
