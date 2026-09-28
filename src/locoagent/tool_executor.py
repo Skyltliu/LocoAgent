@@ -74,7 +74,7 @@ class ToolExecutor:
                 message += f"\nexample: {example}"
             security_event_type = "path_escape" if "path escapes workspace" in str(exc) else ""
             return ToolExecutionResult(
-                content=content,
+                content=message,
                 metadata=_metadata(
                     "rejected",
                     tool_error_code="invalid_arguments",

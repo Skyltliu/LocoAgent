@@ -123,14 +123,45 @@ class LocoAgent:
         return answer.strip().lower() in {"y", "yes"}
 
     def capture_workspace_snapshot(self):
-        pass
+        snapshot = {}
+        for path in self.root.rglob("*"):
+            try:
+                relative_parts = path.relative_to(self.root).parts
+            except ValueError:
+                continue
+            if any(part in IGNORED_PATHS for part in relative_parts):
+                continue
+            if not path.is_file():
+                continue
+            try:
+                snapshot[path.relative_to(self.root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+            except Exception:
+                continue
+        return snapshot
 
     @staticmethod
     def diff_workspace_snapshots(before, after):
-        pass
+        changed_paths = []
+        summaries = []
+        all_paths = sorted(set(before) | set(after))
+        for path in all_paths:
+            if before.get(path) == after.get(path):
+                continue
+            changed_paths.append(path)
+            if path not in before:
+                summaries.append(f"created:{path}")
+            elif path not in after:
+                summaries.append(f"deleted:{path}")
+            else:
+                summaries.append(f"modified:{path}")
+        return changed_paths, summaries
 
     def repeated_tool_call(self, name, args):
-        pass
+        tool_events = [item for item in self.session["history"] if item["role"] == "tool"]
+        if len(tool_events) < 2:
+            return False
+        recent = tool_events[-2:]
+        return all(item["name"] == name and item["args"] == args for item in recent)
 
     def execute_tool(self, name, args):
         result = self.tool_executor.execute(name, args)
@@ -184,15 +215,44 @@ class LocoAgent:
     
     @staticmethod
     def parse_xml_tool(raw):
-        pass
+        match = re.search(r"<tool(?P<attrs>[^>]*)>(?P<body>.*?)</tool>", raw, re.S)
+        if not match:
+            return None
+        attrs = LocoAgent.parse_attrs(match.group("attrs"))
+        name = str(attrs.pop("name", "")).strip()
+        if not name:
+            return None
+        body = match.group("body")
+        args = dict(attrs)
+        for key in ("content", "old_text", "new_text", "command", "task", "pattern", "path"):
+            if f"<{key}>" in body:
+                args[key] = LocoAgent.extract_raw(body, key)
+        body_text = body.strip("\n")
+        #fallback
+        if name == "write_file" and "content" not in args and body_text:
+            args["content"] = body_text
+        return {"name": name, "args": args}
+
 
     @staticmethod
     def parse_attrs(text):
-        pass
+        attrs = {}
+        for match in re.finditer(r"""([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:"([^"]*)"|'([^']*)')""", text):
+            attrs[match.group(1)] = match.group(2) if match.group(2) is not None else match.group(3)
+        return attrs
 
     @staticmethod
     def extract_raw(text, tag):
-        pass
+        start_tag = f"<{tag}>"
+        end_tag = f"</{tag}>"
+        start = text.find(start_tag)
+        if start == -1:
+            return text
+        start += len(start_tag)
+        end = text.find(end_tag, start)
+        if end == -1:
+            return text[start:]
+        return text[start:end]
 
     #phase 1 functions
     def _ensure_session_shape(self):
@@ -224,15 +284,25 @@ class LocoAgent:
         """
         self.record({"role":"user", "content":user_message, "created_at": now()})
         prompt = self.prompt(user_message)
-        for _ in range(3):
+        attempts = 0
+        for _ in range(15):
             raw = self.model_client.complete(prompt, self.max_new_tokens)
             kind, payload = self.parse(raw)
             if kind == "final":
                 self.record({"role":"assistant", "content":payload, "created_at": now()})
                 return payload
+            if kind == "tool":
+                name, args = payload["name"], payload.get("args", {})
+                result = self.execute_tool(name, args)
+                self.record({"role":"tool", "name":name, "args":args, "content": result.content, "created_at": now()})
+                prompt = prompt + "\n\n" + f"[tool:{name}]{json.dumps(args, sort_keys=True)}\n{result.content}"
+                continue
             #if kind == "retry", payload is the retry_notice text; append it to prompt and ask again
+            attempts += 1
+            if attempts > 3:
+                return "Stopped after too many malformed responses."
             prompt = prompt + "\n\n" + payload
-        return "Stopped after too many malformed responses."
+        return "Stopped after too many tool-call steps."
     
     def record(self, item):
         self.session['history'].append(item)
